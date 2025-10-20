@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smokeping Dashboard - Modern UI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js"></script>
+    <style>
+        /* Setting Inter as the default font and base background */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f7; /* bg-gray-500 equivalent */
+            min-height: 100vh;
+        }
+
+        /* Chart container height for consistent look */
+        .chart-container {
+            /* Keep chart containers flexible but ensure minimum height */
+            height: 180px;
+            min-height: 150px;
+            width: 100%;
+        }
+
+        /* Custom scrollbar for pre block */
+        .raw-config::-webkit-scrollbar {
+            width: 8px;
+        }
+        .raw-config::-webkit-scrollbar-thumb {
+            background-color: #4b5563; /* Gray-600 */
+            border-radius: 10px;
+        }
+        .raw-config::-webkit-scrollbar-track {
+            background-color: #e5e7eb; /* Gray-200 */
+        }
+
+        /* Utility for hiding elements */
+        .hidden-mode {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div id="message-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
+        <div id="message-box" class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg transform transition-all scale-95 opacity-0">
+            <div class="flex justify-between items-start">
+                <h3 id="message-title" class="text-xl font-bold text-gray-900">Notification</h3>
+                <button onclick="closeMessage()" class="text-gray-400 hover:text-gray-600 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <p id="message-content" class="mt-4 text-gray-700"></p>
+            <div id="message-details-container" class="mt-4 p-3 bg-gray-100 rounded-lg hidden">
+                <p class="font-semibold text-sm text-gray-600 mb-1">Details:</p>
+                <pre id="message-details" class="text-xs text-gray-700 whitespace-pre-wrap break-words max-h-40 overflow-y-auto"></pre>
+            </div>
+            <div id="message-actions" class="mt-6 flex justify-end">
+                <button onclick="closeMessage()" class="px-5 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition duration-150 shadow-md">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+    <header class="bg-indigo-700 text-white shadow-lg">
+        <div class="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
+            <h1 class="text-2xl font-extrabold tracking-tight">Smokeping Modern Dashboard</h1>
+            <div class="flex items-center space-x-4">
+                <div id="service-status-pill" class="text-sm font-semibold px-3 py-1 rounded-full flex items-center space-x-2 shadow-inner">
+                    <span id="service-status-dot" class="w-2.5 h-2.5 rounded-full"></span>
+                    <span id="service-status-text">Connecting...</span>
+                </div>
+                <div class="relative group">
+                    <span class="text-sm font-medium">Metrics</span>
+                    <div id="metrics-dropdown" class="absolute right-0 mt-2 w-72 bg-white text-gray-800 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 transform translate-y-2 pointer-events-none group-hover:pointer-events-auto z-10 p-3">
+                        <div class="border-b pb-2 mb-2">
+                            <h4 class="font-bold text-indigo-600">System Performance</h4>
+                        </div>
+                        <div class="space-y-1 text-sm">
+                            <p class="flex justify-between">CPU Load (1m): <span id="metric-load-1" class="font-mono text-gray-600">--</span></p>
+                            <p class="flex justify-between">CPU Load (5m): <span id="metric-load-5" class="font-mono text-gray-600">--</span></p>
+                            <p class="flex justify-between">Memory Used: <span id="metric-memory-used" class="font-mono text-gray-600">--</span></p>
+                            <p class="flex justify-between">Config File Size: <span id="metric-config-size" class="font-mono text-gray-600">--</span></p>
+                            <!-- NEW: Log File Size element added here -->
+                            <p class="flex justify-between">Log File Size: <span id="metric-log-size" class="font-mono text-gray-600">--</span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto py-8 sm:px-6 lg:px-8">
+
+        <section class="mb-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="bg-white p-6 rounded-xl shadow-lg border border-indigo-100">
+                <h2 class="text-lg font-semibold text-gray-700 mb-3">API Server Load Average (1m)</h2>
+                <div class="chart-container">
+                    <canvas id="loadAvgChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl shadow-lg border border-indigo-100 flex flex-col justify-center">
+                <h2 class="text-lg font-semibold text-gray-700 mb-4">Configuration Summary</h2>
+                <div class="grid grid-cols-2 gap-4 text-center">
+                    <div class="p-4 bg-indigo-50 rounded-lg shadow-inner">
+                        <p id="total-groups" class="text-3xl font-bold text-indigo-600">0</p>
+                        <p class="text-sm text-gray-500 mt-1">Total Groups</p>
+                    </div>
+                    <div class="p-4 bg-indigo-50 rounded-lg shadow-inner">
+                        <p id="total-hosts" class="text-3xl font-bold text-indigo-600">0</p>
+                        <p class="text-sm text-gray-500 mt-1">Total Hosts</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl shadow-lg border border-indigo-100">
+                <h2 class="text-lg font-semibold text-gray-700 mb-3">Recent Activity</h2>
+                <div id="history-log" class="space-y-2 h-36 overflow-y-auto pr-2">
+                    <p class="text-sm text-gray-500 italic">No recent actions recorded.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="space-y-8">
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-green-100">
+                    <h2 class="text-xl font-bold text-green-700 mb-4 flex items-center">
+                        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        Add New Target
+                    </h2>
+
+                    <div class="flex border-b border-gray-200 mb-4">
+                        <button id="mode-add-host" class="tab-button py-2 px-4 text-sm font-medium text-gray-600 border-b-2 border-transparent hover:border-indigo-400 transition duration-150" data-mode="host">Add Host</button>
+                        <button id="mode-add-subgroup" class="tab-button py-2 px-4 text-sm font-medium text-gray-600 border-b-2 border-transparent hover:border-indigo-400 transition duration-150" data-mode="subgroup">Add Subgroup</button>
+                    </div>
+
+                    <form id="add-target-form" class="space-y-4">
+                        <div id="add-path-container" class="relative">
+                            <label for="add-path-select" class="block text-sm font-medium text-gray-700">Parent Group Path</label>
+                            <select id="add-path-select" name="parent_path" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-lg shadow-sm">
+                                </select>
+                            <p id="parent-group-tip" class="mt-1 text-xs text-gray-500">e.g., `Targets > Internal Network`</p>
+                        </div>
+
+                        <div id="add-host-fields" class="space-y-4 hidden-mode">
+                            <div>
+                                <label for="add-host-name" class="block text-sm font-medium text-gray-700">Host Name (Label)</label>
+                                <input type="text" id="add-host-name" name="host_name" placeholder="My-Server-1" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
+                                <p class="mt-1 text-xs text-gray-500">The friendly name for the host.</p>
+                            </div>
+                            <div>
+                                <label for="add-host-address" class="block text-sm font-medium text-gray-700">Host Address (Target)</label>
+                                <input type="text" id="add-host-address" name="host_address" placeholder="192.168.1.1 or example.com" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
+                                <p class="mt-1 text-xs text-gray-500">The IP address or domain to monitor.</p>
+                            </div>
+                        </div>
+
+                        <div id="add-subgroup-fields" class="space-y-4 hidden-mode">
+                            <div>
+                                <label for="add-subgroup-name" class="block text-sm font-medium text-gray-700">Subgroup Name</label>
+                                <input type="text" id="add-subgroup-name" name="subgroup_name" placeholder="London Office" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
+                                <p class="mt-1 text-xs text-gray-500">The name for the new target group.</p>
+                            </div>
+                            <div>
+                                <label for="add-subgroup-menu" class="block text-sm font-medium text-gray-700">Menu Title (Optional)</label>
+                                <input type="text" id="add-subgroup-menu" name="subgroup_menu" placeholder="LDN Ping Tests" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
+                                <p class="mt-1 text-xs text-gray-500">A display title for the Smokeping menu.</p>
+                            </div>
+                        </div>
+
+                        <button type="submit" id="add-target-button" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-150" disabled>
+                            Add Target
+                        </button>
+                    </form>
+                </div>
+
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-red-100">
+                    <h2 class="text-xl font-bold text-red-700 mb-4 flex items-center">
+                        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        Delete Existing Target
+                    </h2>
+
+                    <form id="delete-target-form" class="space-y-4">
+                        <div>
+                            <label for="delete-target-select" class="block text-sm font-medium text-gray-700">Target to Delete (Host or Group)</label>
+                            <select id="delete-target-select" name="target_path" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm rounded-lg shadow-sm">
+                                </select>
+                            <p class="mt-1 text-xs text-red-500">WARNING: This permanently removes the target and requires a service restart.</p>
+                        </div>
+
+                        <button type="submit" id="delete-target-button" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition duration-150" disabled>
+                            Delete Target
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl shadow-lg border border-indigo-100">
+                <h2 class="text-xl font-bold text-indigo-700 mb-4 flex items-center">
+                    <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                    Raw Configuration (`Targets` file)
+                </h2>
+                <div class="bg-gray-800 p-4 rounded-lg shadow-inner">
+                    <pre id="raw-config-content" class="raw-config text-xs text-green-300 overflow-auto h-96">Loading configuration...</pre>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        // --- Globals ---
+        const API_BASE_URL = 'INJECTED_API_BASE_URL_HERE';
+        const BEARER_TOKEN = 'INJECTED_BEARER_TOKEN_HERE';
+        let currentConfig = null;
+        let currentMode = 'host';
+        let loadAvgChart;
+        let history = [];
+
+        // --- Utility Functions ---
+
+        const closeMessage = () => {
+            const modal = document.getElementById('message-modal');
+            const box = document.getElementById('message-box');
+            modal.classList.add('opacity-0');
+            box.classList.remove('scale-100', 'opacity-100');
+            box.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('opacity-0');
+            }, 300);
+        };
+
+        const showMessage = (message, type = 'info', details = false) => {
+            const modal = document.getElementById('message-modal');
+            const box = document.getElementById('message-box');
+            const title = document.getElementById('message-title');
+            const content = document.getElementById('message-content');
+            const detailsContainer = document.getElementById('message-details-container');
+            const detailsPre = document.getElementById('message-details');
+            const actions = document.getElementById('message-actions');
+
+            box.classList.remove('border-green-500', 'border-red-500', 'border-indigo-500');
+            title.classList.remove('text-green-700', 'text-red-700', 'text-indigo-700');
+
+            if (actions.children.length === 0 || actions.children[0].id !== 'default-close-button') {
+                 actions.innerHTML = `
+                    <button id="default-close-button" onclick="closeMessage()" class="px-5 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition duration-150 shadow-md">
+                        Close
+                    </button>
+                 `;
+            }
+
+            if (type === 'success') {
+                box.classList.add('border-b-4', 'border-green-500');
+                title.classList.add('text-green-700');
+                title.textContent = 'Success!';
+            } else if (type === 'error') {
+                box.classList.add('border-b-4', 'border-red-500');
+                title.classList.add('text-red-700');
+                title.textContent = 'Error!';
+            } else if (type === 'confirmation') {
+                box.classList.add('border-b-4', 'border-indigo-500');
+                title.classList.add('text-indigo-700');
+                title.textContent = 'Confirmation Required';
+            } else {
+                box.classList.add('border-b-4', 'border-indigo-500');
+                title.classList.add('text-indigo-700');
+                title.textContent = 'Information';
+            }
+
+            content.innerHTML = message;
+
+            if (details) {
+                detailsContainer.classList.remove('hidden');
+                detailsPre.textContent = typeof details === 'object' ? JSON.stringify(details, null, 2) : String(details);
+            } else {
+                detailsContainer.classList.add('hidden');
+                detailsPre.textContent = '';
+            }
+
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                box.classList.remove('scale-95', 'opacity-0');
+                box.classList.add('scale-100', 'opacity-100');
+            }, 10);
+        };
+
+        const logHistory = (message) => {
+            const timestamp = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            history.unshift(`[${timestamp}] ${message}`);
+            history = history.slice(0, 5);
+            updateHistoryUI();
+        };
+
+        const updateServiceStatus = (status) => {
+            const dot = document.getElementById('service-status-dot');
+            const text = document.getElementById('service-status-text');
+            const pill = document.getElementById('service-status-pill');
+
+            dot.classList.remove('bg-green-500', 'bg-red-500', 'animate-pulse');
+            pill.classList.remove('bg-green-100', 'text-green-800', 'bg-red-100', 'text-red-800');
+
+            if (status === 'online') {
+                dot.classList.add('bg-green-500');
+                pill.classList.add('bg-green-100', 'text-green-800');
+                text.textContent = 'Service Online';
+            } else {
+                dot.classList.add('bg-red-500', 'animate-pulse');
+                pill.classList.add('bg-red-100', 'text-red-800');
+                text.textContent = 'Service Offline';
+            }
+        };
+
+        const flattenConfig = (node, path, result) => {
+            const isGroup = node.type === 'group';
+            const isHost = node.type === 'host';
+            const name = node.name || 'Unnamed';
+
+            if (path !== 'Targets') {
+                if (isGroup) {
+                    result.push({ path: path, type: 'group', name: name });
+                } else if (isHost) {
+                    result.push({ path: path, type: 'host', name: name, address: node.host });
+                }
+            }
+
+            if (Array.isArray(node.Children)) {
+                node.Children.forEach(childNode => {
+                    const childName = childNode.name || 'Unnamed';
+                    const newPath = `${path} > ${childName}`;
+                    flattenConfig(childNode, newPath, result);
+                });
+            }
+        };
+
+        const collectGroups = (node, path, result) => {
+            const isGroup = node.type === 'group';
+
+            if (isGroup) {
+                let displayName = path;
+
+                if (path === 'Targets') {
+                    displayName = '/ (Root)';
+                }
+
+                result.push({ path: path, displayName: displayName });
+
+                if (Array.isArray(node.Children)) {
+                    node.Children.forEach(childNode => {
+                        const childName = childNode.name || 'UnnamedGroup';
+                        if (childNode.type === 'group') {
+                            const newPath = `${path} > ${childName}`;
+                            collectGroups(childNode, newPath, result);
+                        }
+                    });
+                }
+            }
+        };
+
+        const populateTargetDropdowns = (data) => {
+            currentConfig = data;
+            const parsedConfig = data.parsed_config;
+
+            let totalHosts = 0;
+            let allTargets = [];
+            if (parsedConfig && parsedConfig.Targets) {
+                if (Array.isArray(parsedConfig.Targets.Children)) {
+                    parsedConfig.Targets.Children.forEach(childNode => {
+                        flattenConfig(childNode, `Targets > ${childNode.name}`, allTargets);
+                    });
+                }
+            }
+            totalHosts = allTargets.filter(t => t.type === 'host').length;
+
+            let allGroups = [];
+            if (parsedConfig && parsedConfig.Targets) {
+                collectGroups(parsedConfig.Targets, 'Targets', allGroups);
+            }
+
+            const trueGroupCount = allGroups.length > 0 ? allGroups.length - 1 : 0;
+            document.getElementById('total-groups').textContent = trueGroupCount;
+            document.getElementById('total-hosts').textContent = totalHosts;
+
+            // --- Populate Add Parent Path Select ---
+            const addSelect = document.getElementById('add-path-select');
+            addSelect.innerHTML = '';
+            const parentGroupTip = document.getElementById('parent-group-tip');
+
+            const filteredGroups = allGroups.filter(group => {
+                const segmentCount = group.path.split(' > ').length;
+                const newTargetLevel = segmentCount + 1;
+
+                // Exclude Targets (Root) for hosts, as hosts must be at least Level 1 (+)
+                if (currentMode === 'host' && group.path === 'Targets') {
+                    return false;
+                }
+
+                // FIX: Subgroups are allowed up to Level 3 (+ + +), which is 4 segments (Targets > G1 > G2 > G3)
+                if (currentMode === 'subgroup' && newTargetLevel > 4) {
+                    return false;
+                }
+
+                // Max Host Depth Check: Max 5 segments (Targets > G1 > G2 > G3 > H1) = Level 4 (++++)
+                if (currentMode === 'host' && newTargetLevel > 5) {
+                    return false;
+                }
+                return true;
+            });
+
+
+            if (filteredGroups.length > 0) {
+                filteredGroups.forEach(group => {
+                    const option = document.createElement('option');
+                    option.value = group.path;
+                    option.textContent = group.displayName;
+                    addSelect.appendChild(option);
+                });
+                document.getElementById('add-target-button').disabled = false;
+
+                const firstParentPath = addSelect.options[0].value;
+                const newTargetLevel = firstParentPath.split(' > ').length + 1;
+                const newSymbols = '+'.repeat(Math.max(0, newTargetLevel - 1));
+
+                if (currentMode === 'subgroup') {
+                    parentGroupTip.textContent = `New subgroup will be **${newSymbols}** (max depth: +++).`;
+                } else {
+                    parentGroupTip.textContent = `New host will be **${newSymbols}** (max depth: ++++).`;
+                }
+
+            } else {
+                 addSelect.innerHTML = '<option value="">Max Depth Reached or No Groups Found</option>';
+                 document.getElementById('add-target-button').disabled = true;
+                 parentGroupTip.textContent = 'Cannot add any more targets due to depth restriction.';
+            }
+
+            // --- Populate Delete Target Select ---
+            const deleteSelect = document.getElementById('delete-target-select');
+            deleteSelect.innerHTML = '';
+
+            if (allTargets.length > 0) {
+                allTargets.sort((a, b) => a.path.localeCompare(b.path));
+                allTargets.forEach(target => {
+                    const option = document.createElement('option');
+                    option.value = target.path;
+                    const typeLabel = target.type === 'host' ? '[Host]' : '[Group]';
+                    option.textContent = `${typeLabel} ${target.path}`;
+                    deleteSelect.appendChild(option);
+                });
+                document.getElementById('delete-target-button').disabled = false;
+            } else {
+                deleteSelect.innerHTML = '<option value="">No Targets Available</option>';
+                document.getElementById('delete-target-button').disabled = true;
+            }
+        };
+
+        const loadConfigFromApi = async () => {
+            document.getElementById('raw-config-content').textContent = 'Loading configuration...';
+            try {
+                const response = await fetch(`${API_BASE_URL}/config`, {
+                    headers: { 'Authorization': `Bearer ${BEARER_TOKEN}` }
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `HTTP error! Status: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                document.getElementById('raw-config-content').textContent = data.raw_config || 'Configuration file is empty or missing.';
+                populateTargetDropdowns(data);
+                setAddMode(currentMode);
+
+                // FIX: Log success after config is loaded to ensure log panel is populated initially
+                logHistory('Configuration loaded successfully.');
+
+            } catch (error) {
+                showMessage(`Could not load configuration from API. Check TARGETS_CONFIG_PATH in app1.py`, 'error', error.message);
+                document.getElementById('raw-config-content').textContent = `ERROR: ${error.message}`;
+            }
+        };
+
+        const restartSmokepingService = async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/service/restart`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${BEARER_TOKEN}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || `HTTP error! Status: ${response.status}`);
+                }
+
+                logHistory(`Smokeping service successfully restarted via API.`);
+                return { success: true, message: data.message || "Smokeping service restarted." };
+
+            } catch (error) {
+                showMessage(
+                    `Failed to restart Smokeping service. Configuration was likely saved, but changes may not be live.`,
+                    'error',
+                    error.message
+                );
+                return { success: false, message: error.message };
+            }
+        };
+
+
+        const saveConfigToApi = async (newConfig) => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/config`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${BEARER_TOKEN}`
+                    },
+                    body: JSON.stringify({ raw_config: newConfig })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || `HTTP error! Status: ${response.status}`);
+                }
+
+                document.getElementById('raw-config-content').textContent = data.raw_config;
+
+                // STEP 1: Configuration is saved. Now, explicitly restart the service.
+                const restartResult = await restartSmokepingService();
+
+                // STEP 2: Reload the config for the UI regardless of restart success, using a timeout
+                // to ensure the process has had time to write and the service has restarted.
+                setTimeout(loadConfigFromApi, 1500);
+
+                return {
+                    success: true,
+                    config_message: data.message,
+                    restart_success: restartResult.success,
+                    message: data.message
+                };
+
+            } catch (error) {
+                showMessage(`Failed to save configuration.`, 'error', error.message);
+                // **FIX**: Return a consistent failure object for robust error handling in the caller
+                return { success: false, config_message: `Config save failed: ${error.message}` };
+            }
+        };
+
+        const fetchMetrics = async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/metrics`, {
+                    headers: { 'Authorization': `Bearer ${BEARER_TOKEN}` }
+                });
+
+                if (response.status === 401) {
+                    updateServiceStatus('offline');
+                    showMessage('Authentication failed', 'error', 'API Token is invalid or missing.');
+                    return;
+                }
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                updateServiceStatus('online');
+
+                const metrics = data.metrics;
+
+                // --- FIX APPLIED HERE: Using keys 'config_size' and 'log_size' to match the API response ---
+                document.getElementById('metric-load-1').textContent = metrics.load_avg['1m'] ? metrics.load_avg['1m'].toFixed(2) : '--';
+                document.getElementById('metric-load-5').textContent = metrics.load_avg['5m'] ? metrics.load_avg['5m'].toFixed(2) : '--';
+                document.getElementById('metric-memory-used').textContent = metrics.memory_used_mb ? `${metrics.memory_used_mb.toFixed(1)} MB` : '--';
+                document.getElementById('metric-config-size').textContent = metrics.config_size ? `${metrics.config_size} bytes` : '--';
+                document.getElementById('metric-log-size').textContent = metrics.log_size ? `${metrics.log_size} bytes` : '--';
+                // --------------------------------------------------------------------------------------------------
+
+                updateLoadAvgChart(metrics.load_avg['1m']);
+
+            } catch (error) {
+                updateServiceStatus('offline');
+                console.error("Error fetching metrics:", error);
+            }
+        };
+
+        const initLoadAvgChart = () => {
+            const ctx = document.getElementById('loadAvgChart').getContext('2d');
+            const data = {
+                labels: Array(20).fill(''),
+                datasets: [{
+                    label: 'Load Average (1m)',
+                    data: Array(20).fill(null),
+                    borderColor: 'rgb(79, 70, 229)',
+                    backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 3
+                }]
+            };
+
+            const options = {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { display: false },
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Load (1m)' }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { mode: 'index', intersect: false }
+                }
+            };
+
+            loadAvgChart = new Chart(ctx, {
+                type: 'line',
+                data: data,
+                options: options
+            });
+        };
+
+        const updateLoadAvgChart = (loadValue) => {
+            if (!loadAvgChart || typeof loadValue !== 'number' || isNaN(loadValue)) return;
+            loadAvgChart.data.datasets[0].data.shift();
+            loadAvgChart.data.datasets[0].data.push(loadValue);
+            loadAvgChart.update();
+        };
+
+        const setAddMode = (mode) => {
+            currentMode = mode;
+            const hostFields = document.getElementById('add-host-fields');
+            const subgroupFields = document.getElementById('add-subgroup-fields');
+            const hostButton = document.getElementById('mode-add-host');
+            const subgroupButton = document.getElementById('mode-add-subgroup');
+            const form = document.getElementById('add-target-form');
+            const button = document.getElementById('add-target-button');
+
+            form.querySelectorAll('[required]').forEach(el => el.removeAttribute('required'));
+
+            hostButton.classList.remove('border-indigo-600', 'text-indigo-600');
+            subgroupButton.classList.remove('border-indigo-600', 'text-indigo-600');
+
+            if (mode === 'host') {
+                hostFields.classList.remove('hidden-mode');
+                subgroupFields.classList.add('hidden-mode');
+                hostButton.classList.add('border-indigo-600', 'text-indigo-600');
+                document.getElementById('add-host-name').setAttribute('required', 'required');
+                document.getElementById('add-host-address').setAttribute('required', 'required');
+                button.textContent = 'Add Host';
+            } else {
+                hostFields.classList.add('hidden-mode');
+                subgroupFields.classList.remove('hidden-mode');
+                subgroupButton.classList.add('border-indigo-600', 'text-indigo-600');
+                document.getElementById('add-subgroup-name').setAttribute('required', 'required');
+                button.textContent = 'Add Subgroup';
+            }
+
+            if (currentConfig) {
+                 populateTargetDropdowns(currentConfig);
+            }
+        };
+
+        const normalizeConfigContent = (content) => {
+            let normalized = content.replace(/\r\n/g, '\n');
+            normalized = normalized.replace(/(\n\s*\n){3,}/g, '\n\n');
+            normalized = normalized.trim() + '\n';
+            return normalized;
+        };
+
+        const calculateHierarchy = (targetSegments) => {
+            // Symbols: S - 1. E.g., S=2 (+), S=3 (++), S=4 (+++)
+            const plusSymbols = '+'.repeat(Math.max(0, targetSegments - 1));
+
+            // Header Indent: MUST be 0 spaces (flush left) for all target headers (+, ++, +++, etc.)
+            const headerIndent = '';
+
+            // ATTRIBUTE INDENTATION: User requires 0 spaces for ALL levels.
+            const attrIndent = '';
+
+            return { plusSymbols, headerIndent, attrIndent };
+        };
+
+        /**
+         * Finds the end of a group's block of content (attributes + all children).
+         * @param {string[]} lines - Array of config lines.
+         * @param {number} startIndex - The index of the group's header.
+         * @returns {number} The index *after* the last line of the group's content (including trailing blank lines/comments).
+         */
+        const findEndOfBlock = (lines, startIndex) => {
+            let endIndex = startIndex + 1;
+            // Get the indent level of the current group/target. Targets=0, + = 1, ++ = 2, +++ = 3
+            const groupHeaderMatch = lines[startIndex].trimStart().match(/^\*+ |^\+\*+ |^\+\+* |^\+\+\+* /);
+            const targetHeaderIndent = groupHeaderMatch ? groupHeaderMatch[0].replace(/\*| /g, '').length : 0;
+
+            while (endIndex < lines.length) {
+                const line = lines[endIndex];
+                const trimmedLine = line.trimStart();
+
+                if (trimmedLine === '' || trimmedLine.startsWith('#')) {
+                    endIndex++;
+                    continue;
+                }
+
+                // Check if the next element is a header (starts with + or ***)
+                if (trimmedLine.startsWith('+') || trimmedLine.startsWith('***')) {
+                    // Extract the indent level of the current line's header
+                    let currentLineSymbols = trimmedLine.match(/^\*+ |^\+\*+ |^\+\+* |^\+\+\+* /);
+                    let currentHeaderIndent = currentLineSymbols ? currentLineSymbols[0].replace(/\*| /g, '').length : 0;
+
+                    // If the encountered header is at an equal or shallower depth, the current block ends before it.
+                    if (currentHeaderIndent <= targetHeaderIndent) {
+                        break;
+                    }
+
+                    // If the encountered header is a CHILD (deeper level), we skip its entire block by recursively finding its end.
+                    if (currentHeaderIndent > targetHeaderIndent) {
+                        endIndex = findEndOfBlock(lines, endIndex);
+                        continue; // Continue searching from the end of the child's block
+                    }
+                }
+
+                // If it's an attribute (contains '=') or any other non-header line that's part of the group, just continue.
+                endIndex++;
+            }
+
+            // After the loop, endIndex is the line *after* the last content line of the entire block.
+            // Backtrack over blank lines or comments if they were not part of the content loop.
+            while (endIndex > startIndex + 1 && (lines[endIndex - 1].trim() === '' || lines[endIndex - 1].trim().startsWith('#'))) {
+                endIndex--;
+            }
+
+            return endIndex;
+        }
+
+
+        /**
+         * Inserts a new target block directly into the parent's block.
+         */
+        const insertTargetInConfig = (rawConfig, parentPath, newTargetBlock) => {
+            const lines = rawConfig.split('\n');
+            const pathSegments = parentPath.split(' > ');
+            const parentName = pathSegments.pop().trim();
+            const parentSegments = pathSegments.length + 1;
+
+            const parentSymbols = parentSegments <= 1 ? '' : '+'.repeat(parentSegments - 1);
+            const escapedParentName = parentName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+
+            // 1. Find the parent's header line (insertionIndex)
+            let insertionIndex = -1;
+            let headerPattern;
+            if (parentName === 'Targets' && parentSegments === 1) {
+                headerPattern = new RegExp(`^\\s*\\*\\*\\*\\s*${escapedParentName}\\s*\\*\\*\\*`);
+            } else {
+                // Look for the correct symbols flush left, followed by the name
+                headerPattern = new RegExp(`^${parentSymbols.replace(/\+/g, '\\+')}\\s*${escapedParentName}\\s*($|[^\\s])`);
+            }
+
+            for (let i = 0; i < lines.length; i++) {
+                const trimmedLine = lines[i].trimStart();
+                if (trimmedLine.startsWith(parentSymbols) && headerPattern.test(trimmedLine)) {
+                    insertionIndex = i;
+                    break;
+                }
+            }
+
+            if (insertionIndex === -1) {
+                showMessage(`Could not find parent group header '${parentPath}' in config.`, 'error');
+                return rawConfig;
+            }
+
+            // 2. Find the end of the entire parent block (attributes + all children)
+            // This ensures new targets are appended to the very end of the group.
+            let insertionPoint = findEndOfBlock(lines, insertionIndex);
+
+
+            // 3. INSERTION AND SPACING LOGIC
+
+            const linesToInsert = [];
+            const newTargetBlockTrimmed = newTargetBlock.trim();
+
+            // Prepend a blank line if the line immediately before the insertion point is not blank.
+            // insertionPoint is the index where the new content will start.
+            if (insertionPoint > 0 && lines[insertionPoint - 1].trim() !== '') {
+                 linesToInsert.push('');
+            }
+
+            linesToInsert.push(newTargetBlockTrimmed);
+
+            // If the line at the insertion point is blank, remove it, then check if we need a trailing blank line.
+            let linesToRemove = 0;
+            if (insertionPoint < lines.length && lines[insertionPoint].trim() === '') {
+                 linesToRemove = 1;
+            }
+
+            const lineAfterDeletionIndex = insertionPoint + linesToRemove;
+            if (lineAfterDeletionIndex < lines.length && lines[lineAfterDeletionIndex].trim() !== '') {
+                 linesToInsert.push('');
+            }
+
+            lines.splice(insertionPoint, linesToRemove, ...linesToInsert);
+
+            return normalizeConfigContent(lines.join('\n'));
+        };
+
+
+        const addHostToConfig = (rawConfig, parentPath, hostName, hostAddress) => {
+            const parentSegments = parentPath.split(' > ').length;
+            const targetSegments = parentSegments + 1;
+
+            const { plusSymbols, headerIndent, attrIndent } = calculateHierarchy(targetSegments);
+
+            const newHostBlock =
+`${headerIndent}${plusSymbols} ${hostName}
+${attrIndent}menu = ${hostName}
+${attrIndent}title = ${hostName}
+${attrIndent}host = ${hostAddress}`;
+
+            return insertTargetInConfig(rawConfig, parentPath, newHostBlock);
+        };
+
+        const addSubgroupToConfig = (rawConfig, parentPath, subgroupName, subgroupMenu) => {
+            const parentSegments = parentPath.split(' > ').length;
+            const targetSegments = parentSegments + 1;
+
+            const { plusSymbols, headerIndent, attrIndent } = calculateHierarchy(targetSegments);
+
+            const menuValue = (subgroupMenu && subgroupMenu.trim()) || subgroupName;
+            const titleValue = (subgroupMenu && subgroupMenu.trim()) || `Tests for ${subgroupName}`;
+
+            const newGroupDef =
+`${headerIndent}${plusSymbols} ${subgroupName}
+${attrIndent}menu = ${menuValue}
+${attrIndent}title = ${titleValue}`;
+
+            return insertTargetInConfig(rawConfig, parentPath, newGroupDef);
+        };
+
+        const deleteTargetFromConfig = (rawConfig, targetPath) => {
+            const lines = rawConfig.split('\n');
+            const pathSegments = targetPath.split(' > ');
+            const targetName = pathSegments.pop();
+
+            if (!targetName) return rawConfig;
+
+            const targetSegments = pathSegments.length + 1;
+            const plusSymbols = '+'.repeat(Math.max(0, targetSegments - 1));
+
+            const escapedTargetName = targetName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+            const escapedTargetSymbols = plusSymbols.replace(/\+/g, '\\+');
+
+            const headerPattern = new RegExp(`^${escapedTargetSymbols}\\s*${escapedTargetName}\\s*($|[^\\s])`);
+
+            let startIndex = -1;
+
+            for (let i = 0; i < lines.length; i++) {
+                // Ensure the line starts with the correct number of '+' symbols flush left
+                const trimmedLine = lines[i].trimStart();
+                if (trimmedLine.startsWith(plusSymbols) && headerPattern.test(trimmedLine)) {
+                     startIndex = i;
+                     break;
+                }
+            }
+
+            if (startIndex === -1) {
+                return rawConfig;
+            }
+
+            // Use the block-finding logic to determine the end point accurately
+            let endIndex = findEndOfBlock(lines, startIndex);
+
+
+            const linesToDelete = endIndex - startIndex;
+            lines.splice(startIndex, linesToDelete);
+
+            return normalizeConfigContent(lines.join('\n'));
+        };
+
+        const handleSubmitAddTarget = async (event) => {
+            event.preventDefault();
+            const form = event.target;
+            const parentPath = form.elements.parent_path.value;
+            let rawConfig = currentConfig ? currentConfig.raw_config : '';
+            let targetName = '';
+            let updatedConfig;
+
+            try {
+                if (!currentConfig || !rawConfig) {
+                    throw new Error("Configuration is not loaded. Please try refreshing.");
+                }
+
+                if (currentMode === 'host') {
+                    targetName = form.elements.host_name.value.trim();
+                    const hostAddress = form.elements.host_address.value.trim();
+
+                    if (!targetName || !hostAddress) {
+                        showMessage('Validation Error', 'error', 'Host Name and Address are required.');
+                        return;
+                    }
+
+                    updatedConfig = addHostToConfig(rawConfig, parentPath, targetName, hostAddress);
+
+                    if (updatedConfig === rawConfig) {
+                        showMessage(`Addition Failed. Host '${targetName}' could not be inserted into parent '${parentPath}'. Check config content.`, 'error', `Parent Path: ${parentPath}`);
+                        return;
+                    }
+
+                    // Save config and then restart service
+                    const saved = await saveConfigToApi(updatedConfig);
+
+                    if (saved && saved.success) {
+                        form.reset();
+                        const finalMessage = `Successfully added host **'${targetName}' (${hostAddress})** inside **${parentPath}**. Service restarted. API reported: ${saved.config_message}`;
+                        showMessage(finalMessage, 'success', false);
+                        logHistory(`Added host '${targetName}' to config (Parent: '${parentPath}') and restarted service.`);
+                    }
+
+                } else if (currentMode === 'subgroup') {
+                    targetName = form.elements.subgroup_name.value.trim();
+                    const subgroupMenu = form.elements.subgroup_menu.value.trim();
+
+                    if (!targetName) {
+                        showMessage('Validation Error', 'error', 'Subgroup Name is required.');
+                        return;
+                    }
+
+                    updatedConfig = addSubgroupToConfig(rawConfig, parentPath, targetName, subgroupMenu);
+
+                    if (updatedConfig === rawConfig) {
+                        showMessage(`Addition Failed. Subgroup '${targetName}' could not be inserted into parent '${parentPath}'. Check config content.`, 'error', `Parent Path: ${parentPath}`);
+                        return;
+                    }
+
+                    // Save config and then restart service
+                    const saved = await saveConfigToApi(updatedConfig);
+
+                    if (saved && saved.success) {
+                        form.reset();
+                        const finalMessage = `Successfully added subgroup **'${targetName}'** inside **${parentPath}**. Service restarted. API reported: ${saved.config_message}`;
+                        showMessage(finalMessage, 'success', false);
+                        logHistory(`Added subgroup '${targetName}' to config (Parent: '${parentPath}') and restarted service.`);
+                    }
+                }
+            } catch (error) {
+                showMessage(`Failed to process addition.`, 'error', error.message);
+            }
+        };
+
+        const handleSubmitDeleteTarget = async (event) => {
+            event.preventDefault();
+            const form = event.target;
+            const targetPath = form.elements.target_path.value.trim();
+            let rawConfig = currentConfig ? currentConfig.raw_config : '';
+
+            if (!targetPath) {
+                showMessage('Validation Error', 'error', 'Please select a target to delete.');
+                return;
+            }
+
+            const selectElement = document.getElementById('delete-target-select');
+            const selectedOption = selectElement.options[selectElement.selectedIndex].text;
+
+            const isHost = selectedOption.startsWith('[Host]');
+            const targetType = isHost ? 'host' : 'group';
+            const trimmedPath = targetPath.replace(/Targets > /, '');
+            const targetName = targetPath.split(' > ').pop();
+
+            try {
+                if (!rawConfig) {
+                    throw new Error("Configuration is not loaded. Please try refreshing.");
+                }
+
+                const confirmation = await new Promise(resolve => {
+                    showMessage(
+                        `Are you sure you want to permanently delete the **${targetType}** '${targetName}' at path: **${targetPath}**? This requires RRD file cleanup and service restart.`,
+                        'confirmation',
+                        false
+                    );
+
+                    document.getElementById('message-actions').innerHTML = `
+                        <button id="cancel-delete" class="px-5 py-2 mr-3 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-100 transition duration-150 shadow-md">
+                            Cancel
+                        </button>
+                        <button id="confirm-delete" class="px-5 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition duration-150 shadow-md">
+                            Confirm Delete
+                        </button>
+                    `;
+                    document.getElementById('cancel-delete').onclick = () => { closeMessage(); resolve(false); };
+                    document.getElementById('confirm-delete').onclick = () => { closeMessage(); resolve(true); };
+                });
+
+                if (!confirmation) {
+                    return;
+                }
+
+                // --- STEP 1: Delete RRD Files ---
+                showMessage(`Deleting RRD files for ${targetType} **'${targetName}'**... This may take a moment as Smokeping must be stopped.`, 'info');
+
+                const rrdDeleteResult = await fetch(`${API_BASE_URL}/rrd/delete`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${BEARER_TOKEN}`
+                    },
+                    body: JSON.stringify({ target_path: targetPath })
+                });
+
+                const rrdData = await rrdDeleteResult.json();
+                if (!rrdDeleteResult.ok) {
+                    throw new Error(rrdData.error || `RRD deletion failed! Status: ${rrdDeleteResult.status}`);
+                }
+                logHistory(`RRD cleanup successful for '${targetPath}'. Smokeping stopped and restarted by RRD delete routine.`);
+
+
+                // --- STEP 2: Remove from Config and Save ---
+                const updatedConfig = deleteTargetFromConfig(rawConfig, targetPath);
+
+                if (updatedConfig === rawConfig) {
+                    showMessage(`Config Deletion Failed. Target not found in config. RRDs for this target were already deleted by a separate action.`, 'error', `Target Path: ${targetPath}`);
+                    return;
+                }
+
+                // Use the new save logic which saves the file and restarts the service again (quickly).
+                const saveResult = await saveConfigToApi(updatedConfig);
+
+                // **FIX**: Explicitly check for save failure and show a message, preventing undefined access
+                if (saveResult && saveResult.success) {
+                    form.reset();
+                    const finalMessage = `Successfully deleted ${targetType} **'${targetName}'**. RRD files were cleaned up, and service restarted. API reported: ${saveResult.config_message}`;
+                    showMessage(finalMessage, 'success', false);
+                    logHistory(`Deleted ${targetType} '${trimmedPath}' and restarted service.`);
+                } else {
+                    // Handle explicit save failure (saveResult.success is false)
+                    const failureMessage = (saveResult && saveResult.config_message) || `Configuration save failed after RRD cleanup. The target is removed from the config file, but the service restart may not have completed.`;
+                    showMessage(`Deletion Partially Failed!`, 'error', failureMessage);
+                    logHistory(`Deletion of '${targetName}' failed to save config.`);
+                }
+            } catch (error) {
+                // This catch block handles errors thrown during RRD deletion or configuration file reading/writing.
+                showMessage(`Failed to process deletion or RRD cleanup.`, 'error', error.message);
+            }
+        };
+
+        const initDashboardData = () => {
+
+            window.updateHistoryUI = () => {
+                 const logElement = document.getElementById('history-log');
+                 if (history.length > 0) {
+                    logElement.innerHTML = history.map(item =>
+                        `<p class="text-sm text-gray-700 hover:bg-gray-50 p-1 rounded transition">${item}</p>`
+                    ).join('');
+                 } else {
+                     logElement.innerHTML = '<p class="text-sm text-gray-500 italic">No recent actions recorded.</p>';
+                 }
+            };
+
+            loadConfigFromApi();
+
+            document.getElementById('mode-add-host').addEventListener('click', () => setAddMode('host'));
+            document.getElementById('mode-add-subgroup').addEventListener('click', () => setAddMode('subgroup'));
+
+            document.getElementById('add-target-form').addEventListener('submit', handleSubmitAddTarget);
+            document.getElementById('delete-target-form').addEventListener('submit', handleSubmitDeleteTarget);
+
+            initLoadAvgChart();
+
+            setInterval(fetchMetrics, 10000);
+            fetchMetrics();
+        };
+
+        window.onload = initDashboardData;
+    </script>
+</body>
+</html>
